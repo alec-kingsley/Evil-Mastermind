@@ -1,4 +1,5 @@
 #include "board.h"
+#include "guess.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,6 +17,9 @@ static void play_guess(Board *board, color_t color_a, color_t color_b,
 
     board_print(board);
     printf("Possiblities left: %i\n", board_get_possibility_ct(board));
+    printf("Best guess: ");
+    guess_print_colors(board_get_best_guess(board));
+    printf("\n");
 }
 
 int main(void) {
@@ -23,6 +27,9 @@ int main(void) {
     if (board == NULL) goto main_fail;
 
     printf("Possiblities left: %i\n", board_get_possibility_ct(board));
+    printf("Best guess: ");
+    guess_print_colors(board_get_best_guess(board));
+    printf("\n");
     play_guess(board, COLOR_RED, COLOR_YELLOW, COLOR_YELLOW, COLOR_RED, 1, 1);
     play_guess(board, COLOR_BLUE, COLOR_GREEN, COLOR_YELLOW, COLOR_YELLOW, 2, 1);
     play_guess(board, COLOR_GREEN, COLOR_WHITE, COLOR_RED, COLOR_RED, 1, 0);

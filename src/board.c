@@ -2,6 +2,7 @@
 #include "colors.h"
 #include "guess.h"
 #include "reporter.h"
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,18 +20,95 @@ struct Board {
 
     guess_t guesses[GUESS_LIMIT];
     uint8_t guess_ct;
+
+    /* could be calculated, but this is faster */
+    size_t possible_solution_ct;
 };
 
-uint32_t board_get_possibility_ct(Board *self) {
-    size_t possibility_ct = 0;
-    size_t i;
+typedef struct {
+    uint8_t black_ct;
+    uint8_t white_ct;
+} evaluation_t;
 
-    for (i = 0; i < g_total_possibility_ct; i++) {
-        if (!self->impossible_solutions[i]) {
-            possibility_ct++;
+static evaluation_t get_evaluation(guess_t expected, guess_t guess) {
+    size_t i, j;
+    evaluation_t evaluation;
+    evaluation.black_ct = 0;
+    evaluation.white_ct = 0;
+    for (i = 0; i < PEG_CT; i++) {
+        if (guess_color(expected, i) == guess_color(guess, i))
+            evaluation.black_ct++;
+    }
+    for (i = 0; i < PEG_CT; i++) {
+        for (j = 0; j < PEG_CT; j++) {
+            if (guess_color(expected, j) == guess_color(guess, i)) {
+                evaluation.white_ct++;
+                /* don't re-count the same color */
+                expected = guess_with_color(expected, j, COLOR_CT);
+                break;
+            }
         }
     }
-    return possibility_ct;
+    evaluation.white_ct -= evaluation.black_ct;
+    return evaluation;
+}
+
+typedef float entropy_t;
+
+static entropy_t board_get_entropy(Board *self, guess_t guess) {
+    /* black by white */
+    /* increment possible_answers[1][0] to suggest 1 possibility of 1 black and
+     * no white */
+    size_t possible_evaluations[PEG_CT][PEG_CT];
+    size_t i, j;
+    entropy_t entropy;
+    evaluation_t evaluation;
+    entropy_t response_probability;
+    for (i = 0; i < PEG_CT; i++) {
+        /* minus i since i + j can't be greater than or equal to peg count */
+        for (j = 0; j < PEG_CT - i; j++) {
+            possible_evaluations[i][j] = 0;
+        }
+    }
+
+    for (i = 0; i < g_total_possibility_ct; i++) {
+        if (self->impossible_solutions[i]) continue;
+        evaluation = get_evaluation(g_all_possiblities[i], guess);
+        possible_evaluations[evaluation.black_ct][evaluation.white_ct]++;
+    }
+
+    entropy = 0;
+    for (i = 0; i < PEG_CT; i++) {
+        for (j = 0; j < PEG_CT - i; j++) {
+            if (possible_evaluations[i][j] != 0) {
+                response_probability = (1.0 * possible_evaluations[i][j])
+                                       / self->possible_solution_ct;
+                entropy
+                    += response_probability * log(1.0 / response_probability);
+            }
+        }
+    }
+    return entropy;
+}
+
+guess_t board_get_best_guess(Board *self) {
+    entropy_t entropy, max_entropy = 0;
+    guess_t best_guess = g_all_possiblities[0];
+    size_t i;
+    for (i = 0; i < g_total_possibility_ct; i++) {
+        entropy = board_get_entropy(self, g_all_possiblities[i]);
+        /* prioritize possible solutions */
+        if (entropy > max_entropy
+            || (entropy == max_entropy && !self->impossible_solutions[i])) {
+            max_entropy = entropy;
+            best_guess = g_all_possiblities[i];
+        }
+    }
+    return best_guess;
+}
+
+uint32_t board_get_possibility_ct(Board *self) {
+    return self->possible_solution_ct;
 }
 
 static void board_print_top(void) {
@@ -48,7 +126,6 @@ static void board_print_top(void) {
     }
     printf(RESET "│\n");
 
-
     printf("├─────┼");
     for (i = 0; i < PEG_CT; i++) {
         printf("───");
@@ -65,24 +142,6 @@ static void board_print_bottom(void) {
     printf("┘\n");
 }
 
-static void print_guess_colors(guess_t guess) {
-    color_t color;
-    uint8_t i;
-    for (i = 0; i < PEG_CT; i++) {
-        color = guess_color(guess, i);
-        printf("%s", color == COLOR_RED      ? RED
-                     : color == COLOR_BLUE   ? BLUE
-                     : color == COLOR_YELLOW ? YELLOW
-                     : color == COLOR_GREEN  ? GREEN
-                     /* TODO - better way to display black? */
-                     : color == COLOR_BLACK ? PURPLE
-                     : color == COLOR_WHITE
-                         ? ""
-                         : (report_logic_error("unknown color"), ""));
-        printf(" O " RESET);
-    }
-}
-
 void board_print(Board *self) {
     uint8_t i, j;
     guess_t guess;
@@ -94,7 +153,7 @@ void board_print(Board *self) {
             guess = self->guesses[i];
             printf(" %u %u ", guess_black_ct(guess), guess_white_ct(guess));
             printf("│");
-            print_guess_colors(guess);
+            guess_print_colors(guess);
         } else {
             printf("     │");
             for (j = 0; j < PEG_CT; j++) {
@@ -136,62 +195,42 @@ static lie_ct_t get_lie_ct(uint8_t black_ct, uint8_t white_ct,
     }
 }
 
-static void board_update_lie_counts(Board *self, color_t colors[PEG_CT],
-                                    uint8_t black_ct, uint8_t white_ct) {
-    size_t i, j, k;
-    uint8_t expected_black_ct, expected_white_ct;
-    color_t test_colors[PEG_CT];
+static void board_update_lie_counts(Board *self, guess_t guess) {
+    size_t i;
+    evaluation_t expected;
     guess_t test_guess;
     lie_ct_t lie_ct;
 
     for (i = 0; i < g_total_possibility_ct; i++) {
         if (self->impossible_solutions[i]) continue;
         test_guess = g_all_possiblities[i];
-        expected_black_ct = 0;
-        expected_white_ct = 0;
-        for (j = 0; j < PEG_CT; j++) {
-            test_colors[j] = guess_color(test_guess, j);
-            if (test_colors[j] == colors[j]) expected_black_ct++;
-        }
-        for (j = 0; j < PEG_CT; j++) {
-            for (k = 0; k < PEG_CT; k++) {
-                if (colors[j] == test_colors[k]) {
-                    expected_white_ct++;
-                    /* don't re-count the same color */
-                    test_colors[k] = COLOR_CT;
-                    break;
-                }
-            }
-        }
-        expected_white_ct -= expected_black_ct;
-
-        lie_ct = get_lie_ct(black_ct, white_ct, expected_black_ct,
-                            expected_white_ct);
+        expected = get_evaluation(test_guess, guess);
+        lie_ct = get_lie_ct(guess_black_ct(guess), guess_white_ct(guess),
+                            expected.black_ct, expected.white_ct);
         switch (lie_ct) {
         case ZERO_LIES: break;
-        case ONE_LIE: self->lie_cts[i]++; break;
-        case MULTIPLE_LIES: self->impossible_solutions[i] = true;
-        }
-        if (self->lie_cts[i] > LIE_LIMIT) {
+        case ONE_LIE:
+            self->lie_cts[i]++;
+            if (self->lie_cts[i] > LIE_LIMIT) {
+                self->impossible_solutions[i] = true;
+                self->possible_solution_ct--;
+            }
+
+            break;
+        case MULTIPLE_LIES:
             self->impossible_solutions[i] = true;
+            self->possible_solution_ct--;
         }
     }
 }
 
 void board_submit_guess(Board *self, guess_t guess) {
-    size_t i;
-    uint8_t black_ct = guess_black_ct(guess);
-    uint8_t white_ct = guess_white_ct(guess);
-    color_t colors[PEG_CT];
     if (self->guess_ct == GUESS_LIMIT) {
-        report_logic_error(FILENAME ": attempt to submit more guesses than limit");
+        report_logic_error(FILENAME
+                           ": attempt to submit more guesses than limit");
     }
-    for (i = 0; i < PEG_CT; i++) {
-        colors[i] = guess_color(guess, i);
-    }
-
     self->guesses[self->guess_ct++] = guess;
-    board_update_lie_counts(self, colors, black_ct, white_ct);
+    board_update_lie_counts(self, guess);
 }
 
 static bool ensure_all_possibilities_set(void) {
@@ -247,6 +286,8 @@ Board *board_create(void) {
         report_system_error(FILENAME ": memory allocation failure");
         goto board_create_fail;
     }
+
+    self->possible_solution_ct = g_total_possibility_ct;
 
     return self;
 

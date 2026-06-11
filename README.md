@@ -8,6 +8,8 @@ guess.
 The main purpose of this project is for post-game analysis, although I may make it an interactive
 game at some point.
 
+Currently, the program can show the best move and # of moves remaining after each guess.
+
 ## Running
 
 Edit `main.c` to interact with the Evil Mastermind board and print data about it.

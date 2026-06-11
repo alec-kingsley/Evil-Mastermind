@@ -10,6 +10,11 @@ typedef struct Board Board;
 #define LIE_LIMIT 1
 
 /**
+ * Get best guess.
+ */
+guess_t board_get_best_guess(Board *self);
+
+/**
  * Get # of possibilities remaining.
  */
 uint32_t board_get_possibility_ct(Board *self);

@@ -17,7 +17,7 @@ all: $(TARGET)
 
 # build target
 $(TARGET): $(OBJS) $(BUILD_DIR)/evil_mastermind.o | $(BIN_DIR)
-	gcc $^ -o $@
+	gcc $^ -o $@ -lm
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	gcc $(CFLAGS) -c $< -o $@
 $(BUILD_DIR)/evil_mastermind.o: $(SRC_MAIN) | $(BUILD_DIR)
