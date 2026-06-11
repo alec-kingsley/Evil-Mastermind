@@ -59,14 +59,14 @@ static entropy_t board_get_entropy(Board *self, guess_t guess) {
     /* black by white */
     /* increment possible_answers[1][0] to suggest 1 possibility of 1 black and
      * no white */
-    size_t possible_evaluations[PEG_CT][PEG_CT];
+    size_t possible_evaluations[PEG_CT + 1][PEG_CT + 1];
     size_t i, j;
     entropy_t entropy;
     evaluation_t evaluation;
     entropy_t response_probability;
-    for (i = 0; i < PEG_CT; i++) {
-        /* minus i since i + j can't be greater than or equal to peg count */
-        for (j = 0; j < PEG_CT - i; j++) {
+    for (i = 0; i <= PEG_CT; i++) {
+        /* minus i since i + j can't be greater than peg count */
+        for (j = 0; j <= PEG_CT - i; j++) {
             possible_evaluations[i][j] = 0;
         }
     }
@@ -75,16 +75,19 @@ static entropy_t board_get_entropy(Board *self, guess_t guess) {
         if (self->impossible_solutions[i]) continue;
         evaluation = get_evaluation(g_all_possiblities[i], guess);
         possible_evaluations[evaluation.black_ct][evaluation.white_ct]++;
+        if (evaluation.black_ct + evaluation.white_ct > PEG_CT) {
+            report_logic_error("Woah! Impossible eval!");
+        }
     }
 
-    entropy = 0;
-    for (i = 0; i < PEG_CT; i++) {
-        for (j = 0; j < PEG_CT - i; j++) {
+    entropy = 0.0;
+    for (i = 0; i <= PEG_CT; i++) {
+        for (j = 0; j <= PEG_CT - i; j++) {
             if (possible_evaluations[i][j] != 0) {
                 response_probability = (1.0 * possible_evaluations[i][j])
                                        / self->possible_solution_ct;
-                entropy
-                    += response_probability * log(1.0 / response_probability);
+                entropy += response_probability
+                           * log(1.0 / response_probability) / log(2);
             }
         }
     }
@@ -92,16 +95,20 @@ static entropy_t board_get_entropy(Board *self, guess_t guess) {
 }
 
 guess_t board_get_best_guess(Board *self) {
-    entropy_t entropy, max_entropy = 0;
+    entropy_t entropy = 0.0, max_entropy = 0.0;
     guess_t best_guess = g_all_possiblities[0];
+    bool best_guess_is_possible = false;
     size_t i;
     for (i = 0; i < g_total_possibility_ct; i++) {
         entropy = board_get_entropy(self, g_all_possiblities[i]);
         /* prioritize possible solutions */
         if (entropy > max_entropy
-            || (entropy == max_entropy && !self->impossible_solutions[i])) {
+            || (!best_guess_is_possible && !self->impossible_solutions[i]
+                && entropy > max_entropy - 0.01)) {
+
             max_entropy = entropy;
             best_guess = g_all_possiblities[i];
+            best_guess_is_possible = !self->impossible_solutions[i];
         }
     }
     return best_guess;
