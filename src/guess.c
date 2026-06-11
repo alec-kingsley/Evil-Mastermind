@@ -14,16 +14,17 @@ void guess_print_colors(guess_t guess) {
     uint8_t i;
     for (i = 0; i < PEG_CT; i++) {
         color = guess_color(guess, i);
-        printf("%s", color == COLOR_RED      ? RED
-                     : color == COLOR_BLUE   ? BLUE
-                     : color == COLOR_YELLOW ? YELLOW
-                     : color == COLOR_GREEN  ? GREEN
+        printf(" ");
+        printf("%s", color == COLOR_RED      ? RED "R"
+                     : color == COLOR_BLUE   ? BLUE "B"
+                     : color == COLOR_YELLOW ? YELLOW "Y"
+                     : color == COLOR_GREEN  ? GREEN "G"
                      /* TODO - better way to display black? */
-                     : color == COLOR_BLACK ? PURPLE
+                     : color == COLOR_BLACK ? PURPLE "P"
                      : color == COLOR_WHITE
-                         ? ""
+                         ? "W"
                          : (report_logic_error("unknown color"), ""));
-        printf(" O " RESET);
+        printf(" " RESET);
     }
 }
 
